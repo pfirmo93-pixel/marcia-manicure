@@ -161,6 +161,9 @@
   .avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; flex-shrink: 0; }
   .brand { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 16px; text-align: center; }
   .logo { width: min(210px, 60%); height: auto; color: var(--accent); display: block; }
+  .wk { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .wk button { aspect-ratio: 1; max-width: 100%; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--muted); font-weight: 700; }
+  .wk button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
   .serv-box { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
   .serv-box input[data-serv="nome"] { font-weight: 700; }
   .slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
@@ -208,13 +211,14 @@
   function novoEstado() {
     return {
       servicos: SERVICOS_PADRAO.map(function (s) { return { id: uid(), nome: s[0], preco: s[1], dur: s[2] }; }),
-      clientes: [], atend: {}, negocio: { nome: '', abre: '08:00', fecha: '19:00' }
+      clientes: [], atend: {}, negocio: { nome: '', abre: '08:00', fecha: '19:00', zap: '(21) 96445-1344' }
     };
   }
   var S;
   try { S = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { S = null; }
   if (!S || !S.servicos) S = novoEstado();
   S.servicos.forEach(function (x) { if (!x.dur) x.dur = 60; });
+  if (S.negocio && !S.negocio.zap) S.negocio.zap = '(21) 96445-1344';
   S.atend = S.atend || {}; S.clientes = S.clientes || []; S.negocio = S.negocio || { nome: '', pix: '' };
   var podeSalvar = true;
   function salvar() {
@@ -350,6 +354,7 @@
     h += '<div class="card"><div class="label">Resumo de ' + MESES[mes].toLowerCase() + '</div><div class="sumrow big"><span>' + r.qtd + (r.qtd === 1 ? ' atendimento' : ' atendimentos') + '</span><b>' + dinheiro(r.total) + '</b></div>' +
       FORMAS.map(function (f) { return '<div class="sumrow"><span>' + f + '</span><span>' + dinheiro(r.formas[f] || 0) + '</span></div>'; }).join('') + '</div>';
     h += '<button class="btn primary block" data-act="dia" data-k="' + hk + '">Ver hoje</button>';
+    h += '<button class="btn ghost block" data-act="linkLivres">Enviar horários livres para cliente</button>';
     return h + '</div>';
   }
 
@@ -395,6 +400,29 @@
       toast(novos ? (novos === 1 ? '1 cliente adicionada' : novos + ' clientes adicionadas') + (repetidos ? ' (' + repetidos + (repetidos === 1 ? ' já estava' : ' já estavam') + ')' : '') : 'Essas clientes já estavam cadastradas');
     }).catch(function () { toast('Não consegui abrir os contatos. Tente de novo.'); });
   }
+  function montarLink() {
+    var hoje = new Date(), b = {}, dias = 7;
+    for (var i = 0; i < dias; i++) {
+      var d = new Date(hoje); d.setDate(hoje.getDate() + i); var k = chave(d);
+      var l = (S.atend[k] || []).filter(function (a) { return a.hora; }).map(function (a) { var m = min(a.hora); return [m, m + (a.dur || 60)]; });
+      if (l.length) b[k] = l;
+    }
+    var zap = String(S.negocio.zap || '').replace(/\D/g, ''); if (zap.length <= 11) zap = '55' + zap.replace(/^0+/, '');
+    var dados = { w: zap, a: min(S.negocio.abre || '08:00'), f: min(S.negocio.fecha || '19:00'), g: chave(hoje), n: dias,
+      s: S.servicos.map(function (s) { return [s.nome, s.preco, s.dur || 60]; }), b: b, x: S.negocio.folga || [] };
+    var cod = btoa(unescape(encodeURIComponent(JSON.stringify(dados)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return location.href.replace(/[^\/]*([?#].*)?$/, '') + 'reserva.html?d=' + cod;
+  }
+  function abrirLinkLivres() {
+    if (!String(S.negocio.zap || '').replace(/\D/g, '')) { tela = 'ajustes'; render(); toast('Primeiro coloque o seu WhatsApp aqui embaixo.'); setTimeout(function () { var z = document.getElementById('negZap'); if (z) { z.scrollIntoView({ block: 'center' }); z.focus(); } }, 50); return; }
+    var link = montarLink();
+    var msg = 'Oi! Escolha aqui o melhor horário para você: ' + link;
+    abrirSheet('<h2>Horários livres</h2><p class="sub" style="margin-top:-6px">Link com os horários livres dos próximos 7 dias. Mande para a cliente, ou poste no status.</p>' +
+      '<textarea id="linkTxt" readonly style="min-height:90px;font-size:13px">' + esc(link) + '</textarea>' +
+      '<a class="btn primary block" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">Mandar pelo WhatsApp</a>' +
+      '<div class="two"><button class="btn ghost" data-act="copLink">Copiar link</button><button class="btn ghost" data-act="fechar">Fechar</button></div>' +
+      '<p class="help">Se você marcar mais alguém, mande um link novo para os horários ficarem certos.</p>');
+  }
   function telaClientes() {
     var q = busca.trim().toLowerCase();
     var lista = S.clientes.slice().sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); })
@@ -430,6 +458,8 @@
     h += '<button class="btn ghost block" data-act="addServ">+ Adicionar serviço</button></div>';
 
     h += '<div class="card stack"><div class="label">Horário de trabalho</div>' +
+      '<div class="field"><span>Dias que eu atendo</span><div class="wk">' + ['D','S','T','Q','Q','S','S'].map(function (l, i) { var off = (S.negocio.folga || []).indexOf(i) >= 0; return '<button type="button" class="' + (off ? '' : 'on') + '" data-act="folga" data-v="' + i + '" aria-label="' + DIAS[i] + '">' + l + '</button>'; }).join('') + '</div><p class="help">Os dias apagados não aparecem no link de horários para as clientes.</p></div>' +
+      '<label class="field"><span>Seu WhatsApp (as clientes pedem horário para este número)</span><input type="tel" id="negZap" inputmode="tel" value="' + esc(S.negocio.zap || '') + '" placeholder="(11) 98765-4321"></label>' +
       '<div class="two"><label class="field"><span>Começo a atender às</span><input type="time" id="negAbre" value="' + esc(S.negocio.abre || '08:00') + '"></label><label class="field"><span>Último horário termina às</span><input type="time" id="negFecha" value="' + esc(S.negocio.fecha || '19:00') + '"></label></div>' +
       '</div>';
 
@@ -592,6 +622,9 @@
         salvar(); fecharSheet(); render(); toast('Horário apagado'); break;
       case 'novoCli': abrirCliente(null); break;
       case 'importar': importarContatos(); break;
+      case 'linkLivres': abrirLinkLivres(); break;
+      case 'folga': var fl = S.negocio.folga = S.negocio.folga || [], v = +t.dataset.v, ix = fl.indexOf(v); if (ix >= 0) fl.splice(ix, 1); else fl.push(v); salvar(); render(); break;
+      case 'copLink': copiar(document.getElementById('linkTxt').value, 'Link copiado'); break;
       case 'editCli': abrirCliente(id); break;
       case 'salvarCli': salvarCliente(); break;
       case 'delCli':
@@ -618,7 +651,7 @@
   document.addEventListener('change', function (e) {
     var t = e.target;
     if (t.dataset.serv) { var s = servico(t.dataset.id); if (!s) return; if (t.dataset.serv === 'nome') s.nome = t.value.trim() || s.nome; else if (t.dataset.serv === 'dur') s.dur = +t.value; else s.preco = lerValor(t.value); salvar(); render(); toast('Salvo'); }
-    else if (t.id === 'negAbre' || t.id === 'negFecha') { S.negocio.abre = document.getElementById('negAbre').value || '08:00'; S.negocio.fecha = document.getElementById('negFecha').value || '19:00'; salvar(); toast('Salvo'); }
+    else if (t.id === 'negAbre' || t.id === 'negFecha' || t.id === 'negZap') { S.negocio.zap = document.getElementById('negZap').value.trim(); S.negocio.abre = document.getElementById('negAbre').value || '08:00'; S.negocio.fecha = document.getElementById('negFecha').value || '19:00'; salvar(); toast('Salvo'); }
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fecharSheet(); });
 
