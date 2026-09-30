@@ -354,7 +354,7 @@
     h += '<div class="card"><div class="label">Resumo de ' + MESES[mes].toLowerCase() + '</div><div class="sumrow big"><span>' + r.qtd + (r.qtd === 1 ? ' atendimento' : ' atendimentos') + '</span><b>' + dinheiro(r.total) + '</b></div>' +
       FORMAS.map(function (f) { return '<div class="sumrow"><span>' + f + '</span><span>' + dinheiro(r.formas[f] || 0) + '</span></div>'; }).join('') + '</div>';
     h += '<button class="btn primary block" data-act="dia" data-k="' + hk + '">Ver hoje</button>';
-    h += '<button class="btn ghost block" data-act="linkLivres">Enviar horários livres para cliente</button>';
+    h += '<div class="two"><button class="btn ghost" data-act="linkLivres">Mandar link para cliente</button><button class="btn ghost" data-act="status">Imagem para o status</button></div>';
     return h + '</div>';
   }
 
@@ -400,28 +400,116 @@
       toast(novos ? (novos === 1 ? '1 cliente adicionada' : novos + ' clientes adicionadas') + (repetidos ? ' (' + repetidos + (repetidos === 1 ? ' já estava' : ' já estavam') + ')' : '') : 'Essas clientes já estavam cadastradas');
     }).catch(function () { toast('Não consegui abrir os contatos. Tente de novo.'); });
   }
+  var LINK_PADRAO = { w: '5521964451344', a: 480, f: 1140, n: 7, x: [], s: [['Pé e mão', 45, 90], ['Mão', 30, 40], ['Pé', 30, 40], ['Spa dos pés', 40, 60]] };
   function montarLink() {
-    var hoje = new Date(), b = {}, dias = 7;
-    for (var i = 0; i < dias; i++) {
+    var hoje = new Date(), P = LINK_PADRAO, h = String(hoje.getFullYear()).slice(2) + pad(hoje.getMonth() + 1) + pad(hoje.getDate());
+    for (var i = 0; i < P.n; i++) {
       var d = new Date(hoje); d.setDate(hoje.getDate() + i); var k = chave(d);
-      var l = (S.atend[k] || []).filter(function (a) { return a.hora; }).map(function (a) { var m = min(a.hora); return [m, m + (a.dur || 60)]; });
-      if (l.length) b[k] = l;
+      var l = (S.atend[k] || []).filter(function (a) { return a.hora; }).map(function (a) { var m = min(a.hora); return Math.floor(m / 5).toString(36) + '-' + Math.ceil((m + (a.dur || 60)) / 5).toString(36); });
+      if (l.length) h += '~' + i + l.join(',');
     }
+    var q = 'h=' + h;
     var zap = String(S.negocio.zap || '').replace(/\D/g, ''); if (zap.length <= 11) zap = '55' + zap.replace(/^0+/, '');
-    var dados = { w: zap, a: min(S.negocio.abre || '08:00'), f: min(S.negocio.fecha || '19:00'), g: chave(hoje), n: dias,
-      s: S.servicos.map(function (s) { return [s.nome, s.preco, s.dur || 60]; }), b: b, x: S.negocio.folga || [] };
-    var cod = btoa(unescape(encodeURIComponent(JSON.stringify(dados)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    return location.href.replace(/[^\/]*([?#].*)?$/, '') + 'reserva.html?d=' + cod;
+    if (zap !== P.w) q += '&w=' + zap;
+    var a = min(S.negocio.abre || '08:00'), f = min(S.negocio.fecha || '19:00');
+    if (a !== P.a) q += '&a=' + a;
+    if (f !== P.f) q += '&f=' + f;
+    var x = (S.negocio.folga || []).slice().sort().join('');
+    if (x) q += '&x=' + x;
+    var sv = S.servicos.map(function (s) { return [s.nome, s.preco, s.dur || 60]; });
+    if (JSON.stringify(sv) !== JSON.stringify(P.s)) q += '&s=' + btoa(unescape(encodeURIComponent(JSON.stringify(sv)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return location.href.replace(/[^\/]*([?#].*)?$/, '') + 'reserva.html?' + q;
   }
   function abrirLinkLivres() {
     if (!String(S.negocio.zap || '').replace(/\D/g, '')) { tela = 'ajustes'; render(); toast('Primeiro coloque o seu WhatsApp aqui embaixo.'); setTimeout(function () { var z = document.getElementById('negZap'); if (z) { z.scrollIntoView({ block: 'center' }); z.focus(); } }, 50); return; }
     var link = montarLink();
-    var msg = 'Oi! Escolha aqui o melhor horário para você: ' + link;
+    var msg = 'Agende seu horário com a Márcia Manicure:\n' + link;
     abrirSheet('<h2>Horários livres</h2><p class="sub" style="margin-top:-6px">Link com os horários livres dos próximos 7 dias. Mande para a cliente, ou poste no status.</p>' +
       '<textarea id="linkTxt" readonly style="min-height:90px;font-size:13px">' + esc(link) + '</textarea>' +
       '<a class="btn primary block" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">Mandar pelo WhatsApp</a>' +
       '<div class="two"><button class="btn ghost" data-act="copLink">Copiar link</button><button class="btn ghost" data-act="fechar">Fechar</button></div>' +
       '<p class="help">Se você marcar mais alguém, mande um link novo para os horários ficarem certos.</p>');
+  }
+  // ---------- Imagem para o status ----------
+  function periodosLivres(k) {
+    var abre = min(S.negocio.abre || '08:00'), fecha = min(S.negocio.fecha || '19:00');
+    var menor = Math.min.apply(null, S.servicos.map(function (s) { return s.dur || 60; }).concat([600]));
+    if (k === hojeK()) { var ag = new Date(), m = ag.getHours() * 60 + ag.getMinutes() + 30; abre = Math.max(abre, Math.ceil(m / 30) * 30); }
+    var ocup = (S.atend[k] || []).filter(function (a) { return a.hora; }).map(function (a) { var i = min(a.hora); return [i, i + (a.dur || 60)]; })
+      .sort(function (a, b) { return a[0] - b[0]; });
+    var out = [], ini = abre;
+    ocup.forEach(function (o) { if (o[0] - ini >= menor) out.push([ini, o[0]]); ini = Math.max(ini, o[1]); });
+    if (fecha - ini >= menor) out.push([ini, fecha]);
+    return out;
+  }
+  function desenharStatus() {
+    var W = 1080, H = 1920, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var c = cv.getContext('2d');
+    var g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#bf3564'); g.addColorStop(1, '#7a1739');
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    // moldura fina
+    c.strokeStyle = 'rgba(255,217,229,.35)'; c.lineWidth = 3; c.strokeRect(48, 48, W - 96, H - 96);
+    var F = '"Figtree", "Segoe UI", Roboto, Arial, sans-serif';
+    c.textAlign = 'center'; c.fillStyle = '#ffffff';
+    c.font = '600 64px ' + F; c.fillText('Horários livres', W / 2, 560);
+    c.fillStyle = '#ffd9e5'; c.font = '400 40px ' + F; c.fillText('Toque no link e escolha o seu', W / 2, 625);
+    // lista de dias
+    var y = 740, hoje = new Date(), dias = 0, folga = S.negocio.folga || [];
+    for (var i = 0; i < 7 && dias < 6; i++) {
+      var d = new Date(hoje); d.setDate(hoje.getDate() + i);
+      if (folga.indexOf(d.getDay()) >= 0) continue;
+      var k = chave(d), per = periodosLivres(k);
+      if (i === 0 && !per.length) continue;
+      dias++;
+      c.fillStyle = 'rgba(255,255,255,.10)'; roundRect(c, 110, y - 58, W - 220, 128, 28); c.fill();
+      c.textAlign = 'left'; c.fillStyle = '#ffffff'; c.font = '700 44px ' + F;
+      var nomeDia = i === 0 ? 'Hoje' : i === 1 ? 'Amanhã' : DIAS[d.getDay()].replace(/^./, function (x) { return x.toUpperCase(); });
+      c.fillText(nomeDia, 150, y + 4);
+      c.fillStyle = '#ffd9e5'; c.font = '400 32px ' + F; c.fillText(pad(d.getDate()) + '/' + pad(d.getMonth() + 1), 150, y + 46);
+      c.textAlign = 'right';
+      var txt = per.length ? per.slice(0, 2).map(function (p) { return hhmm(p[0]).replace(':00', 'h').replace(':', 'h') + ' às ' + hhmm(p[1]).replace(':00', 'h').replace(':', 'h'); }).join('  ·  ') : 'Lotado';
+      c.fillStyle = per.length ? '#ffffff' : 'rgba(255,255,255,.55)'; c.font = (per.length ? '600 38px ' : 'italic 400 38px ') + F;
+      c.fillText(txt, W - 150, y + 20);
+      y += 150;
+    }
+    // rodapé
+    c.textAlign = 'center';
+    c.fillStyle = '#ffffff'; roundRect(c, 180, H - 290, W - 360, 116, 58); c.fill();
+    c.fillStyle = '#8a1c42'; c.font = '700 44px ' + F; c.fillText('Agende pelo link', W / 2, H - 216);
+    c.fillStyle = '#ffd9e5'; c.font = '400 34px ' + F; c.fillText('ou chame no WhatsApp ' + (S.negocio.zap || ''), W / 2, H - 112);
+    return new Promise(function (ok) {
+      var svg = LOGO.replace('<svg class="logo"', '<svg xmlns="http://www.w3.org/2000/svg" width="820" height="358"').replace('currentColor', '#ffffff').replace('var(--muted)', '#ffd9e5');
+      var img = new Image();
+      img.onload = function () { c.drawImage(img, (W - 700) / 2, 150, 700, 700 * 150 / 344); ok(cv); };
+      img.onerror = function () { ok(cv); };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+  function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+  var ultimoPng = null;
+  function abrirStatus() {
+    var link = montarLink(), msg = 'Agende seu horário com a Márcia Manicure:\n' + link;
+    var pronto = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    pronto.then(desenharStatus).then(function (cv) {
+      var url = cv.toDataURL('image/png');
+      cv.toBlob(function (b) { ultimoPng = b; });
+      abrirSheet('<h2>Imagem para o status</h2>' +
+        '<img src="' + url + '" alt="Imagem com os horários livres" style="width:62%;align-self:center;border-radius:14px;box-shadow:var(--shadow)">' +
+        '<button class="btn primary block" data-act="compStatus">Postar no status do WhatsApp</button>' +
+        '<textarea id="linkTxt" readonly style="min-height:70px;font-size:13px">' + esc(msg) + '</textarea>' +
+        '<div class="two"><button class="btn ghost" data-act="copLink">Copiar texto com link</button><button class="btn ghost" data-act="fechar">Fechar</button></div>' +
+        '<p class="help">Ao tocar em “Postar”, escolha WhatsApp e depois “Meu status”. O link vai junto na legenda. Se o link não for junto, toque em “Copiar texto com link” e cole na legenda.</p>');
+    });
+  }
+  function compartilharStatus() {
+    var msg = document.getElementById('linkTxt').value;
+    if (!ultimoPng) { toast('Aguarde um segundo e toque de novo.'); return; }
+    var file = new File([ultimoPng], 'horarios-marcia.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], text: msg }).catch(function () {});
+    } else {
+      copiar(msg, 'Texto copiado. Segure a imagem para salvar e poste no status.');
+    }
   }
   function telaClientes() {
     var q = busca.trim().toLowerCase();
@@ -623,6 +711,8 @@
       case 'novoCli': abrirCliente(null); break;
       case 'importar': importarContatos(); break;
       case 'linkLivres': abrirLinkLivres(); break;
+      case 'status': abrirStatus(); break;
+      case 'compStatus': compartilharStatus(); break;
       case 'folga': var fl = S.negocio.folga = S.negocio.folga || [], v = +t.dataset.v, ix = fl.indexOf(v); if (ix >= 0) fl.splice(ix, 1); else fl.push(v); salvar(); render(); break;
       case 'copLink': copiar(document.getElementById('linkTxt').value, 'Link copiado'); break;
       case 'editCli': abrirCliente(id); break;
