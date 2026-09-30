@@ -2,7 +2,7 @@
 // abra rapidinho e continue funcionando mesmo sem internet (os dados das
 // clientes já ficam salvos no aparelho via localStorage, independente disso).
 
-const CACHE = 'marcia-manicure-v2';
+const CACHE = 'marcia-manicure-v3';
 const ARQUIVOS = [
   './',
   './index.html',
