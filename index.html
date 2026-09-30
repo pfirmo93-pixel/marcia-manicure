@@ -375,13 +375,33 @@
   }
 
   // ---------- Clientes ----------
+  function temContatos() { return 'contacts' in navigator && 'ContactsManager' in window; }
+  function soDigitos(t) { return String(t || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, ''); }
+  function importarContatos() {
+    navigator.contacts.select(['name', 'tel'], { multiple: true }).then(function (lista) {
+      var novos = 0, repetidos = 0;
+      (lista || []).forEach(function (c) {
+        var nome = ((c.name && c.name[0]) || '').trim();
+        var tel = ((c.tel && c.tel[0]) || '').trim();
+        if (!nome && !tel) return;
+        if (!nome) nome = tel;
+        var d = soDigitos(tel);
+        var existe = S.clientes.some(function (x) { return (d && soDigitos(x.tel) === d) || x.nome.toLowerCase() === nome.toLowerCase(); });
+        if (existe) { repetidos++; return; }
+        S.clientes.push({ id: uid(), nome: nome, tel: tel, obs: '', retorno: '' }); novos++;
+      });
+      if (!novos && !repetidos) return;
+      salvar(); render();
+      toast(novos ? (novos === 1 ? '1 cliente adicionada' : novos + ' clientes adicionadas') + (repetidos ? ' (' + repetidos + (repetidos === 1 ? ' já estava' : ' já estavam') + ')' : '') : 'Essas clientes já estavam cadastradas');
+    }).catch(function () { toast('Não consegui abrir os contatos. Tente de novo.'); });
+  }
   function telaClientes() {
     var q = busca.trim().toLowerCase();
     var lista = S.clientes.slice().sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); })
       .filter(function (c) { return !q || c.nome.toLowerCase().indexOf(q) >= 0 || String(c.tel || '').indexOf(q) >= 0; });
     var h = '<div class="top"><div><h1>Clientes</h1><p class="sub">' + S.clientes.length + ' cadastradas</p></div></div><div class="stack">';
     if (S.clientes.length > 5) h += '<input type="text" id="buscaCli" class="search" placeholder="Buscar pelo nome ou telefone" value="' + esc(busca) + '">';
-    if (!S.clientes.length) h += '<div class="card empty"><strong>Nenhuma cliente ainda</strong>Cadastre aqui ou direto na hora de marcar um horário.</div>';
+    if (!S.clientes.length) h += '<div class="card empty"><strong>Nenhuma cliente ainda</strong>' + (temContatos() ? 'Toque em “Puxar dos meus contatos” e marque as clientes de uma vez.' : 'Cadastre aqui ou direto na hora de marcar um horário.') + '</div>';
     else {
       h += '<div class="card" style="padding-block:4px">';
       if (!lista.length) h += '<div class="empty">Ninguém com esse nome.</div>';
@@ -394,7 +414,8 @@
       });
       h += '</div>';
     }
-    h += '<button class="btn primary block" data-act="novoCli">+ Nova cliente</button>';
+    if (temContatos()) h += '<button class="btn primary block" data-act="importar">Puxar dos meus contatos</button><button class="btn ghost block" data-act="novoCli">+ Nova cliente</button>';
+    else h += '<button class="btn primary block" data-act="novoCli">+ Nova cliente</button>';
     return h + '</div>';
   }
 
@@ -570,6 +591,7 @@
         S.atend[diaSel] = S.atend[diaSel].filter(function (x) { return x.id !== form.id; }); if (!S.atend[diaSel].length) delete S.atend[diaSel];
         salvar(); fecharSheet(); render(); toast('Horário apagado'); break;
       case 'novoCli': abrirCliente(null); break;
+      case 'importar': importarContatos(); break;
       case 'editCli': abrirCliente(id); break;
       case 'salvarCli': salvarCliente(); break;
       case 'delCli':
