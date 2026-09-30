@@ -1,37 +1,48 @@
-// Service worker simples: guarda os arquivos do app em cache para que ele
-// abra rapidinho e continue funcionando mesmo sem internet (os dados das
-// clientes já ficam salvos no aparelho via localStorage, independente disso).
+// Service worker da Márcia Manicure.
+// Páginas (index.html, reserva.html): busca SEMPRE a versão nova na internet
+// e só usa a cópia guardada quando estiver sem internet. Assim cada
+// atualização subida no GitHub chega no celular na hora.
+// Os dados das clientes ficam no aparelho (localStorage) e não são afetados.
 
-const CACHE = 'marcia-manicure-v8';
+const CACHE = 'marcia-manicure-v9';
 const ARQUIVOS = [
-  './',
-  './index.html',
-  './reserva.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-maskable-512.png',
-  './icon-apple-touch.png',
+  './', './index.html', './reserva.html', './manifest.json',
+  './icon-192.png', './icon-512.png', './icon-maskable-512.png', './icon-apple-touch.png',
 ];
 
-self.addEventListener('install', (evento) => {
-  evento.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ARQUIVOS)).catch(() => {})
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.all(ARQUIVOS.map((u) => fetch(u, { cache: 'reload' }).then((r) => r.ok && c.put(u, r)).catch(() => {}))))
   );
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (evento) => {
-  evento.waitUntil(
-    caches.keys().then((chaves) =>
-      Promise.all(chaves.filter((c) => c !== CACHE).map((c) => caches.delete(c)))
-    )
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener('fetch', (evento) => {
-  evento.respondWith(
-    caches.match(evento.request).then((resposta) => resposta || fetch(evento.request))
-  );
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const ehPagina = req.mode === 'navigate' || /\.html$|\/$/.test(new URL(req.url).pathname);
+  if (ehPagina) {
+    // Internet primeiro; sem internet, usa a cópia guardada.
+    e.respondWith(
+      fetch(req, { cache: 'no-store' })
+        .then((r) => { const cp = r.clone(); caches.open(CACHE).then((c) => c.put(req, cp)); return r; })
+        .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./index.html')))
+    );
+  } else {
+    // Ícones e manifest: usa a cópia e atualiza por trás.
+    e.respondWith(
+      caches.match(req).then((cache) => {
+        const rede = fetch(req).then((r) => { const cp = r.clone(); caches.open(CACHE).then((c) => c.put(req, cp)); return r; }).catch(() => cache);
+        return cache || rede;
+      })
+    );
+  }
 });
