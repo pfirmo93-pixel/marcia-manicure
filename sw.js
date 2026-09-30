@@ -4,7 +4,7 @@
 // atualização subida no GitHub chega no celular na hora.
 // Os dados das clientes ficam no aparelho (localStorage) e não são afetados.
 
-const CACHE = 'marcia-manicure-v10';
+const CACHE = 'marcia-manicure-v11';
 const ARQUIVOS = [
   './', './index.html', './reserva.html', './manifest.json',
   './icon-192.png', './icon-512.png', './icon-maskable-512.png', './icon-apple-touch.png',
